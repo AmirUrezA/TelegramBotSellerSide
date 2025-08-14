@@ -1,0 +1,67 @@
+name: Deploy Bot to VPS
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Basic syntax check
+        run: |
+          python -m py_compile sellersbot.py models.py db.py
+
+      - name: Create deployment package
+        run: |
+          mkdir temp_package
+          rsync -a --exclude='.git' --exclude='__pycache__' --exclude='.venv' --exclude='.github' ./ temp_package/
+          tar -czf deployment.tar.gz -C temp_package .
+
+      - name: Copy code to VPS via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "deployment.tar.gz"
+          target: "~/TelegramBotSellers"
+
+      - name: SSH and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ~/TelegramBotSellers
+            tar -xzf deployment.tar.gz
+            rm -f deployment.tar.gz
+
+            # Ensure external network exists (shared with Telegrambotmaze)
+            docker network create botnet || true
+
+            # Bring up bot using the provided compose (only bot, no db here)
+            docker compose down || true
+            docker compose up -d --build
+
+            # Optional: verify bot container is running
+            docker compose ps
+            docker compose logs --tail=50 bot || true 

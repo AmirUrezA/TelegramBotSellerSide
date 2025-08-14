@@ -1,0 +1,24 @@
+# VCS
+.git
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+*.sqlite
+
+# Env / venv
+.env
+.venv
+venv
+
+# Build artifacts
+build
+site
+htmlcov
+dist
+coverage
+*.egg-info 
