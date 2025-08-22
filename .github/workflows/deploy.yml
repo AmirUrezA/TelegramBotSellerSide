@@ -63,7 +63,7 @@ jobs:
             fi
 
             # Ensure external network exists (shared with Telegrambotmaze)
-            docker network create botnet || true
+            docker network create telegrambot_botnet || true
 
             # Bring up bot using the provided compose (only bot, no db here)
             docker compose down || true

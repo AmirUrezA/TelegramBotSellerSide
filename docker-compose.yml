@@ -14,8 +14,8 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - botnet
+      - telegrambot_botnet
 
 networks:
-  botnet:
+  telegrambot_botnet:
     external: true 
