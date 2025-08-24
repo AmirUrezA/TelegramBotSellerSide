@@ -29,7 +29,7 @@ PRODUCT_MAP = {
 
 (ASK_NAME, ASK_PHONE, ASK_OTP) = range(3)
 
-(ASK_CODE, ASK_DISCOUNT, ASK_PRODUCT, ASK_INSTALLMENT) = range(4)
+(ASK_CODE, ASK_PRODUCT, ASK_INSTALLMENT) = range(3)
 
 def is_valid_persian_name(name: str) -> bool:
     """Check if the name is a valid Persian name (2-5 words, 5-50 characters)"""
@@ -181,7 +181,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = await code_details(code_id)
         await query.answer()
         keyboard = [[InlineKeyboardButton("حذف", callback_data=f"delete_code_{code_id}"), InlineKeyboardButton("بازگشت", callback_data=f"list_codes")]]
-        await query.edit_message_text(f"کد {code.code} \n\n مقدار تخفیف {code.discount}هزار تومان \n\n محصول {code.product} \n\n قابلیت قسطی {code.installment} \n\n تاریخ ایجاد: {code.created_at} \n\n", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(f"کد {code.code} \n\n محصول {code.product} \n\n قابلیت قسطی {'بله' if code.installment else 'خیر'} \n\n تاریخ ایجاد: {code.created_at} \n\n", reply_markup=InlineKeyboardMarkup(keyboard))
     elif query.data.startswith("delete_code_"):
         async with AsyncSessionLocal() as session:
             user = await session.execute(select(Seller).where(Seller.telegram_id == query.from_user.id))
@@ -241,27 +241,14 @@ async def handle_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if code_check:
             await update.message.reply_text("کد تکراری است لطفا کد دیگری وارد کنید")
             return ASK_CODE
-    await update.message.reply_text("لطفا مقدار تخفیف را وارد کنید(تا 1,500,000 تومان برای خرید نقدی و 1,000,000 تومان برای خرید قسطی)")
-    context.user_data["code"] = code
-    return ASK_DISCOUNT
-
-async def handle_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    discount = update.message.text
-    persian_digits = "۰۱۲۳۴۵۶۷۸۹"
-    english_digits = "0123456789"
-    trans_table = str.maketrans(persian_digits, english_digits)
-    discount = discount.translate(trans_table)
-    if not discount.isdigit():
-        await update.message.reply_text("مقدار تخفیف باید عدد باشد")
-        return ASK_DISCOUNT
-    if int(discount) > 1500000:
-        await update.message.reply_text("مقدار تخفیف باید کمتر از 1,500,000 تومان باشد")
-        return ASK_DISCOUNT
+    
     keyboard = [[KeyboardButton("محصولات الماس"), KeyboardButton("پایه 5ام")], [KeyboardButton("پایه 6ام"), KeyboardButton("پایه 7ام")], [KeyboardButton("پایه 8ام"), KeyboardButton("پایه 9ام")]]
     keyboard_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("لطفا محصول یا محصولاتی که میخواهید کد را به آن اختصاص دهید انتخاب کنید", reply_markup=keyboard_markup)
-    context.user_data["discount"] = discount
+    context.user_data["code"] = code
     return ASK_PRODUCT
+
+
 
 async def handle_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product = update.message.text
@@ -269,42 +256,49 @@ async def handle_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if product not in valid_products:
         await update.message.reply_text("محصول انتخاب شده معتبر نیست.")
         return ASK_PRODUCT
-    if product == "محصولات الماس" and int(context.user_data["discount"]) > 1000000:
-        await update.message.reply_text("محصولات الماس فقط برای تخفیف زیر 1,000,000 تومان میباشد")
-        return ASK_PRODUCT
     
     keyboard = [[KeyboardButton("قسطی"), KeyboardButton("نقدی")]]
-    await update.message.reply_text("لطفا قابلیت قسطی را انتخاب کنید\n نکته:قابلیت قسطی فقط برای محصولات الماس و تخفیف زیر 1,000,000 تومان میباشد\n\n/cancel لغو", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    await update.message.reply_text("لطفا قابلیت قسطی را انتخاب کنید\n نکته:قابلیت قسطی فقط برای محصولات الماس میباشد\n\n/cancel لغو", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
     context.user_data["product"] = product
     return ASK_INSTALLMENT
 
 async def handle_installment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     installment = update.message.text
     if installment == "قسطی":
-        if context.user_data["product"] != ReferralCodeProductEnum.ALMAS or int(context.user_data["discount"]) > 1000000:
-            await update.message.reply_text("❌ فقط محصولات الماس با تخفیف زیر 1,000,000 تومان می‌توانند قسطی باشند.")
+        if context.user_data["product"] != "محصولات الماس":
+            await update.message.reply_text("❌ فقط محصولات الماس می‌توانند قسطی باشند.")
             return ASK_INSTALLMENT
         context.user_data["installment"] = True
     else:
         context.user_data["installment"] = False
-    async with AsyncSessionLocal() as session:
-        seller = await session.execute(select(Seller).where(Seller.telegram_id == update.message.from_user.id))
-        seller = seller.scalar_one_or_none()
-        if not seller:
-            await update.message.reply_text("شما هنوز ثبت نام نکرده اید لطفا برای ثبت نام از دستور /register استفاده کنید")
-            return start(update, context)
-        enum_product = PRODUCT_MAP[context.user_data["product"]]
-        code = ReferralCode(
-            code=context.user_data["code"],
-            discount=int(context.user_data["discount"]),
-            product=enum_product,
-            installment=context.user_data["installment"],
-            owner_id=seller.id
-        )
-        session.add(code)
-        await session.commit()
-        await update.message.reply_text("کد با موفقیت اضافه شد لطفا برای اضافه کردن کد دیگری از دستور /add_code استفاده کنید")
-        return list_codes_func(update, context)
+    
+    try:
+        async with AsyncSessionLocal() as session:
+            seller = await session.execute(select(Seller).where(Seller.telegram_id == update.message.from_user.id))
+            seller = seller.scalar_one_or_none()
+            if not seller:
+                await update.message.reply_text("شما هنوز ثبت نام نکرده اید لطفا برای ثبت نام از دستور /register استفاده کنید")
+                return start(update, context)
+            enum_product = PRODUCT_MAP[context.user_data["product"]]
+            code = ReferralCode(
+                code=context.user_data["code"],
+                discount=0,  # Set default discount to 0
+                product=enum_product,
+                installment=context.user_data["installment"],
+                owner_id=seller.id
+            )
+            session.add(code)
+            await session.commit()
+            await update.message.reply_text("کد با موفقیت اضافه شد لطفا برای اضافه کردن کد دیگری از دستور /add_code استفاده کنید")
+            return list_codes_func(update, context)
+    except IntegrityError as e:
+        logger.error(f"Database integrity error: {e}")
+        await update.message.reply_text("❌ خطا در ایجاد کد. لطفاً مجدداً تلاش کنید یا با پشتیبانی تماس بگیرید.")
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Unexpected error in handle_installment: {e}")
+        await update.message.reply_text("❌ خطای غیرمنتظره. لطفاً مجدداً تلاش کنید.")
+        return ConversationHandler.END
 
 if __name__ == "__main__":
     BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -326,7 +320,6 @@ if __name__ == "__main__":
         entry_points=[CommandHandler("add_code", add_code_func)],
         states={
             ASK_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_code)],
-            ASK_DISCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_discount)],
             ASK_PRODUCT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_product)],
             ASK_INSTALLMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_installment)],
         },
