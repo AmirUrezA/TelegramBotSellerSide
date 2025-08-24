@@ -11,6 +11,11 @@ from kavenegar import KavenegarAPI
 import re
 import random
 from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 PRODUCT_MAP = {
@@ -304,6 +309,8 @@ async def handle_installment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 if __name__ == "__main__":
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     app = ApplicationBuilder().token(str(BOT_TOKEN)).build()
+    logger.info("Bot started")
+    
     
     # Registration conversation handler
     app.add_handler(ConversationHandler(
